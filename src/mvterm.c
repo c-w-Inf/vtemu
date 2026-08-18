@@ -1,6 +1,7 @@
 #include "mvterm.h"
 
 #include <stdio.h>
+#include <time.h>
 #include <vterm.h>
 
 static void pututf8 (uint32_t cp) {
@@ -116,8 +117,8 @@ static void print_color (VTermColor* clr, int isfg, int args) {
             puthexdig (clr->rgb.red >> 4);
             puthexdig (clr->rgb.red & 0xf);
             puthexdig (clr->rgb.green >> 4);
-            puthexdig (clr->rgb.green >> 4);
-            puthexdig (clr->rgb.blue & 0xf);
+            puthexdig (clr->rgb.green & 0xf);
+            puthexdig (clr->rgb.blue >> 4);
             puthexdig (clr->rgb.blue & 0xf);
         }
     } else {
@@ -142,13 +143,31 @@ static void print_color (VTermColor* clr, int isfg, int args) {
     }
 }
 void print_vterm (VTerm* vt, int args) {
+    VTermState* vtst = vterm_obtain_state (vt);
+
     int rows, cols;
     vterm_get_size (vt, &rows, &cols);
 
     VTermColor fg, bg;
-    vterm_state_get_default_colors (vterm_obtain_state (vt), &fg, &bg);
-    print_color (&fg, 1, args);
-    print_color (&bg, 0, args);
+    vterm_state_get_default_colors (vtst, &fg, &bg);
+
+    VTermPos curp;
+    vterm_state_get_cursorpos (vtst, &curp);
+
+    if (args & MVTERM_PRINT_VISUAL) {
+        print_color (&fg, 1, args);
+        print_color (&bg, 0, args);
+    } else {
+        print_color (&fg, 1, args);
+        print_color (&bg, 0, args);
+
+        struct timespec now;
+        clock_gettime (CLOCK_REALTIME, &now);
+
+        char buf[64];
+        snprintf (buf, sizeof (buf), " %ld.%09ld %d;%d\n", now.tv_sec, now.tv_nsec, curp.row, curp.col);
+        for (char* c = buf; *c; ++c) putchar (*c);
+    }
 
     VTermScreenCellAttrs attr = {};
     VTermColor cfg = fg, cbg = bg;
@@ -178,24 +197,24 @@ void print_vterm (VTerm* vt, int args) {
                     } else {
                         putcsi (-1, 'C', args);
                     }
-                }
-
-                if (!(args & MVTERM_PRINT_VISUAL)) {
-                    if (cell.width > 1 || cell.chars[1]) {
-                        putchar ('%');
-                        putchar (cell.width + '0');
-                        int cpw = 0;
-                        for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
-                        putchar (cpw + '0');
-                    }
-                }
-
-                for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; i++) {
-                    uint32_t cp = cell.chars[i];
+                } else {
                     if (!(args & MVTERM_PRINT_VISUAL)) {
-                        if (cp == '%') putchar ('%');
+                        if (cell.width > 1 || cell.chars[1]) {
+                            putchar ('%');
+                            putchar (cell.width + '0');
+                            int cpw = 0;
+                            for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
+                            putchar (cpw + '0');
+                        }
                     }
-                    pututf8 (cp);
+
+                    for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
+                        uint32_t cp = cell.chars[i];
+                        if (!(args & MVTERM_PRINT_VISUAL)) {
+                            if (cp == '%') putchar ('%');
+                        }
+                        pututf8 (cp);
+                    }
                 }
 
                 c += cell.width;

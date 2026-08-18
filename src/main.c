@@ -78,6 +78,7 @@ int main (int argc, char* const* argv) {
     VTermScreen* vts = vterm_obtain_screen (vt);
     vterm_screen_reset (vts, 1);
 
+    ptytty_init ();
     PTYTTY pty = ptytty_create ();
     if (!ptytty_get (pty)) {
         fprintf (stderr, "fail to get ptytty\n");
