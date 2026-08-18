@@ -4,6 +4,7 @@
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -11,6 +12,7 @@
 #include <unistd.h>
 #include <vterm.h>
 
+#include "help_msg.h"
 #include "mvterm.h"
 #include "ringbuf.h"
 
@@ -29,6 +31,20 @@ int parse_int (const char* str, int64_t* val) {
     *val = strtol (str, &endptr, 0);
     return !*endptr;
 }
+static void print_usage (FILE* out, const char* prog) {
+    static const char token[] = "@PROG@";
+    size_t token_len = sizeof (token) - 1;
+
+    for (const char* cur = help_msg; *cur;) {
+        if (strncmp (cur, token, token_len) == 0) {
+            fputs (prog, out);
+            cur += token_len;
+        } else {
+            fputc ((unsigned char)*cur, out);
+            ++cur;
+        }
+    }
+}
 
 int main (int argc, char* const* argv) {
     uint64_t lines = 24, columns = 80;
@@ -37,35 +53,44 @@ int main (int argc, char* const* argv) {
     uint64_t xms = 100;
 
     opterr = 0;
-    for (int opt; (opt = getopt (argc, argv, ":c:l:s:vx:")) != -1;) {
+    for (int opt; (opt = getopt (argc, argv, ":c:l:s:x:vh")) != -1;) {
         if (opt == ':') {
             fprintf (stderr, "-%c: requires an argument\n", optopt);
-            return 0;
+            fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+            return EXIT_FAILURE;
         } else if (opt == '?') {
             fprintf (stderr, "-%c: unknown option\n", optopt);
-            return 0;
+            fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+            return EXIT_FAILURE;
         } else if (opt == 'c') {
             if (!parse_uint (optarg, &columns)) {
                 fprintf (stderr, "-c: needs an uinteger\n");
-                return 0;
+                fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+                return EXIT_FAILURE;
             }
         } else if (opt == 'l') {
             if (!parse_uint (optarg, &lines)) {
                 fprintf (stderr, "-l: needs an uinteger\n");
-                return 0;
+                fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+                return EXIT_FAILURE;
             }
         } else if (opt == 's') {
             if (!parse_uint (optarg, &us)) {
                 fprintf (stderr, "-s: needs an uinteger\n");
-                return 0;
+                fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+                return EXIT_FAILURE;
             }
         } else if (opt == 'v') {
             visual_args |= MVTERM_PRINT_VISUAL;
         } else if (opt == 'x') {
-            if (!parse_uint (optarg, &us)) {
+            if (!parse_uint (optarg, &xms)) {
                 fprintf (stderr, "-x: needs an uinteger\n");
-                return 0;
+                fprintf (stderr, "Try '%s -h' for more information.\n", argv[0]);
+                return EXIT_FAILURE;
             }
+        } else if (opt == 'h') {
+            print_usage (stdout, argv[0]);
+            return EXIT_SUCCESS;
         }
     }
 
@@ -98,10 +123,15 @@ int main (int argc, char* const* argv) {
     pid_t pid = fork ();
     if (pid == 0) {
         setsid ();
+        if (ioctl (slave, TIOCSCTTY, 0) == -1) {
+            perror ("fail to set controlling tty");
+            _exit (EXIT_FAILURE);
+        }
+        close (master);
         dup2 (slave, STDIN_FILENO);
         dup2 (slave, STDOUT_FILENO);
         dup2 (slave, STDERR_FILENO);
-        close (slave);
+        if (slave > STDERR_FILENO) close (slave);
         setenv ("TERM", "xterm-256color", 1);
         argv[optind] ? execvp (argv[optind], argv + optind) : execlp ("sh", "sh", "-i", NULL);
         _exit (EXIT_FAILURE);
@@ -156,7 +186,7 @@ int main (int argc, char* const* argv) {
         }
 
         if (ringbuf_copyd_from (out_buf, &master, RINGBUF_READ_FD) < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-            perror ("unable to read pty");
+            if (errno != EIO) perror ("unable to read pty");
             break;
         }
 

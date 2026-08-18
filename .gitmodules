@@ -1,3 +1,3 @@
 [submodule "libringbuf"]
 	path = src/ringbuf
-	url = https://github.com/c-w-Inf/libringbuf.git
+	url = git@github.com:c-w-Inf/libringbuf.git

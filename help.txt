@@ -1,0 +1,110 @@
+Usage: @PROG@ [options] [--] [command [args...]]
+
+Run COMMAND on a pseudoterminal and mirror its output into an
+internal libvterm screen model.  Bytes read from standard input
+are sent to the child process, except for vtemu input escapes.
+
+If COMMAND is omitted, vtemu runs: sh -i
+
+The child starts with a controlling terminal, TERM=xterm-256color,
+and the terminal size selected by -l and -c.
+
+About sh -i:
+  The -i flag asks sh to run as an interactive shell.  In that mode
+  the shell behaves like one opened from a real terminal: it prints
+  prompts, enables job-control commands such as fg and bg when the
+  shell supports them, and uses terminal-oriented behavior for input.
+  This is the default because vtemu is usually used to observe and
+  test full-screen or interactive terminal behavior.
+
+  Plain sh, without -i, may treat its input as a non-interactive
+  script.  It usually prints no prompt, may skip interactive startup
+  behavior, and may handle input differently.  Use plain sh only when
+  you intentionally want script-style execution instead of a live
+  shell session.
+
+Options:
+  -c NUM    set virtual terminal columns to NUM (default: 80)
+  -l NUM    set virtual terminal lines to NUM (default: 24)
+  -s NUM    set idle polling interval in microseconds (default: 10);
+              use 0 to yield the scheduler instead of sleeping
+  -x NUM    set <X> pause duration in milliseconds (default: 100)
+  -v        turn on visual mode; printed screen snapshots are readable
+              in a console by emitting real ANSI escape sequences
+              for visual attributes and colors
+  -h        display this help and exit
+
+Mandatory arguments to options are mandatory.  NUM is parsed as an
+unsigned integer; decimal, octal, and hexadecimal forms accepted by
+strtoul(3) are allowed.
+
+Use -- before COMMAND when the command itself starts with an option.
+For a simple visual terminal-program snapshot:
+  echo "<X><P>:q<CR>" | @PROG@ -v vim 2>/dev/null
+
+Input:
+  Standard input is processed byte by byte.  Literal newline and
+  carriage return bytes are ignored; use <CR> to send Enter to
+  the child process.
+
+Input escapes:
+
+  <P>       print the current virtual terminal screen to stdout
+  <X>       pause input processing for the -x duration while output
+              continues to be read and emulated
+  <ESC>     send an Escape byte to the child process
+  <CR>      send a carriage return byte to the child process
+  <L>       send a literal '<' byte to the child process
+
+Timing with <X>:
+  Use <X> when the child needs time to react before the next input
+  arrives.  Common cases are waiting for sh -i to print its prompt,
+  waiting for Vim or another full-screen program to initialize and
+  refresh its screen, waiting after <ESC> for Vim to leave insert
+  mode, or waiting before <P> so the snapshot captures the updated
+  virtual terminal.  Repeat <X> to wait longer.
+
+Screen printing:
+  vtemu writes a screen snapshot only when <P> is received.  Without
+  -v, the snapshot uses vtemu's stable escaped test format, such as
+  %f... colors and %10 cells.  This is not console-readable, but it
+  makes spaces, null cells, widths, and attributes easier to test.
+  With -v, visual mode makes the output readable in a console, but
+  some characters, such as spaces and null cells, are harder to
+  distinguish.
+
+Examples:
+  @PROG@ -h
+      Show this help text.
+
+  @PROG@ -l 8 -c 40 -- sh -i
+      Run an interactive shell in an 8-line by 40-column terminal.
+
+  printf '<X>echo hello<CR><X><P>exit<CR>' | @PROG@ -l 8 -c 40 -- sh -i
+      Wait for the shell prompt, run a command, print the screen,
+      then exit the shell.
+
+  echo "<X><P>:q<CR>" | @PROG@ -v vim 2>/dev/null
+      Print a visual Vim screen snapshot, then quit Vim.
+
+  printf '<ESC>:q<CR><P>' | @PROG@ -v -l 24 -c 80 -- vim
+      Send Escape and :q to Vim, then print a visual screen snapshot.
+
+  printf '%s' '<X><X>vim tmp.txt<CR><X><X><X>ggdGiHello,World!<X><P><ESC><X><X><X>:wq<CR><X><X><X>exit<CR>' | @PROG@ -v
+      Drive Vim from the default shell, insert text, and print while
+      Vim is still in insert mode.  Because <P> appears before <ESC>,
+      the snapshot shows -- INSERT --.
+
+  printf '%s' '<X><X>vim tmp.txt<CR><X><X><X>ggdGiHello,World!<ESC><X><X><X>:wq<CR><X><X><X>cat tmp.txt<CR><X><P>exit<CR>' | @PROG@ -v
+      Edit and save tmp.txt with Vim, return to the shell, cat the
+      saved file, print the shell screen, then exit.
+
+Exit status:
+  0  if help was displayed or vtemu exits normally
+  1  if an option is invalid, an argument is missing or malformed,
+     or startup/initialization fails
+
+Notes:
+  vtemu currently supports short options only; use -h, not --help.
+  When vtemu exits, it closes the pseudoterminal and terminates any
+  remaining child process.
