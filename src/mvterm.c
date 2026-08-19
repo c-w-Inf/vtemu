@@ -31,7 +31,7 @@ static void putcsi (int id, char type, int args) {
     if (args & MVTERM_PRINT_VISUAL) {
         putchar ('\x1b');
         putchar ('[');
-        if (id > 0) {
+        if (id >= 0) {
             if (id >= 10) putchar (id / 10 + '0');
             putchar (id % 10 + '0');
         }
@@ -39,7 +39,7 @@ static void putcsi (int id, char type, int args) {
     } else {
         putchar ('%');
         putchar ('c');
-        if (id > 0) {
+        if (id >= 0) {
             putchar (id / 10 + '0');
             putchar (id % 10 + '0');
         } else {
@@ -227,7 +227,10 @@ void print_vterm (VTerm* vt, int args) {
         putchar ('\n');
     }
 
-    if (args & MVTERM_PRINT_VISUAL) putcsi (0, 'm', args);
+    if (args & MVTERM_PRINT_VISUAL) {
+        putcsi (0, 'm', args);
+        fflush (stdout);
+    }
 }
 
 static int vterm_escape (RINGBUF dest, int escape) {
