@@ -99,6 +99,11 @@ int main (int argc, char* const* argv) {
     pid_t pid = fork ();
     if (pid == 0) {
         setsid ();
+        if (ioctl (slave, TIOCSCTTY, 0) < 0) {
+            perror ("fail to set pty");
+            _exit (EXIT_FAILURE);
+        }
+        close (master);
         dup2 (slave, STDIN_FILENO);
         dup2 (slave, STDOUT_FILENO);
         dup2 (slave, STDERR_FILENO);
