@@ -2136,6 +2136,11 @@ void vterm_state_reset(VTermState *state, int hard)
   }
 }
 
+void vterm_state_get_mode(const VTermState *state, VTermMode *mode)
+{
+  *mode = state->mode;
+}
+
 void vterm_state_get_cursorpos(const VTermState *state, VTermPos *cursorpos)
 {
   *cursorpos = state->pos;

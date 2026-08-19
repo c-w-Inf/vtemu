@@ -151,6 +151,9 @@ void print_vterm (VTerm* vt, int args) {
     VTermColor fg, bg;
     vterm_state_get_default_colors (vtst, &fg, &bg);
 
+    VTermMode mode;
+    vterm_state_get_mode (vtst, &mode);
+
     VTermPos curp;
     vterm_state_get_cursorpos (vtst, &curp);
 
@@ -165,7 +168,12 @@ void print_vterm (VTerm* vt, int args) {
         clock_gettime (CLOCK_REALTIME, &now);
 
         char buf[64];
-        snprintf (buf, sizeof (buf), " %ld.%09ld %d;%d\n", now.tv_sec, now.tv_nsec, curp.row, curp.col);
+        snprintf (
+            buf, sizeof (buf), " %ld.%09ld %c%c%c%d;%d\n", now.tv_sec, now.tv_nsec,
+            (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BLOCK
+                 ? 'O'
+                 : (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BAR_LEFT ? '[' : '_')),
+            (mode.cursor_visible ? 'v' : 'i'), (mode.cursor_blink ? 'b' : 's'), curp.row, curp.col);
         for (char* c = buf; *c; ++c) putchar (*c);
     }
 
@@ -189,13 +197,20 @@ void print_vterm (VTerm* vt, int args) {
                 print_color (&cbg, 0, args);
             }
 
+            int on_cursor = r == curp.row && c == curp.col && mode.cursor_visible;
+
+            if ((args & MVTERM_PRINT_VISUAL) && on_cursor) putcsi (7, 'm', args);
+
             if (cell.width) {
                 if (!cell.chars[0]) {
                     if (!(args & MVTERM_PRINT_VISUAL)) {
                         putchar ('%');
                         putchar (' ');
                     } else {
-                        putcsi (-1, 'C', args);
+                        if (on_cursor)
+                            putchar (' ');
+                        else
+                            putcsi (-1, 'C', args);
                     }
                 } else {
                     if (!(args & MVTERM_PRINT_VISUAL)) {
@@ -216,6 +231,8 @@ void print_vterm (VTerm* vt, int args) {
                         pututf8 (cp);
                     }
                 }
+
+                if ((args & MVTERM_PRINT_VISUAL) && on_cursor) putcsi (0, 'm', args);
 
                 c += cell.width;
             } else {

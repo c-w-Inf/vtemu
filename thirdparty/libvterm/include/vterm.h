@@ -425,6 +425,23 @@ void vterm_parser_set_emit_nul(VTerm *vt, bool emit);
 // -----------
 
 typedef struct {
+  unsigned int keypad:1;
+  unsigned int cursor:1;
+  unsigned int autowrap:1;
+  unsigned int insert:1;
+  unsigned int newline:1;
+  unsigned int cursor_visible:1;
+  unsigned int cursor_blink:1;
+  unsigned int cursor_shape:2;
+  unsigned int alt_screen:1;
+  unsigned int origin:1;
+  unsigned int screen:1;
+  unsigned int leftrightmargin:1;
+  unsigned int bracketpaste:1;
+  unsigned int report_focus:1;
+} VTermMode;
+
+typedef struct {
   int (*putglyph)(VTermGlyphInfo *info, VTermPos pos, void *user);
   int (*movecursor)(VTermPos pos, VTermPos oldpos, int visible, void *user);
   int (*scrollrect)(VTermRect rect, int downward, int rightward, void *user);
@@ -463,6 +480,7 @@ void  vterm_state_set_unrecognised_fallbacks(VTermState *state, const VTermState
 void *vterm_state_get_unrecognised_fbdata(VTermState *state);
 
 void vterm_state_reset(VTermState *state, int hard);
+void vterm_state_get_mode(const VTermState *state, VTermMode *mode);
 void vterm_state_get_cursorpos(const VTermState *state, VTermPos *cursorpos);
 void vterm_state_get_default_colors(const VTermState *state, VTermColor *default_fg, VTermColor *default_bg);
 void vterm_state_get_palette_color(const VTermState *state, int index, VTermColor *col);

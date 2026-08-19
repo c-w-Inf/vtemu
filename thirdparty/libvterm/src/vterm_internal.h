@@ -105,22 +105,7 @@ struct VTermState
   int combine_width; // The width of the glyph above
   VTermPos combine_pos;   // Position before movement
 
-  struct {
-    unsigned int keypad:1;
-    unsigned int cursor:1;
-    unsigned int autowrap:1;
-    unsigned int insert:1;
-    unsigned int newline:1;
-    unsigned int cursor_visible:1;
-    unsigned int cursor_blink:1;
-    unsigned int cursor_shape:2;
-    unsigned int alt_screen:1;
-    unsigned int origin:1;
-    unsigned int screen:1;
-    unsigned int leftrightmargin:1;
-    unsigned int bracketpaste:1;
-    unsigned int report_focus:1;
-  } mode;
+  VTermMode mode;
 
   VTermEncodingInstance encoding[4], encoding_utf8;
   int gl_set, gr_set, gsingle_set;
