@@ -8,6 +8,7 @@
 void print_vterm (VTerm* vt, int args);
 
 #define MVTERM_PRINT_VISUAL 1
+#define MVTERM_PRINT_PRETTY 2
 
 extern const int VTERM_ESCAPE_INIT_STAT;
 int vterm_escape_translate (RINGBUF dest, int* status, char c);

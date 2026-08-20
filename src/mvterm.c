@@ -29,8 +29,7 @@ static void puthexdig (int hex) {
 }
 static void putcsi (int id, char type, int args) {
     if (args & MVTERM_PRINT_VISUAL) {
-        putchar ('\x1b');
-        putchar ('[');
+        putchar ('\x1b'), putchar ('[');
         if (id >= 0) {
             if (id >= 10) putchar (id / 10 + '0');
             putchar (id % 10 + '0');
@@ -92,13 +91,9 @@ static void print_attr (VTermScreenCellAttrs* attr, VTermScreenCellAttrs* nattr,
 static void print_color (VTermColor* clr, int isfg, int args) {
     if (VTERM_COLOR_IS_RGB (clr)) {
         if (args & MVTERM_PRINT_VISUAL) {
-            putchar ('\x1b');
-            putchar ('[');
+            putchar ('\x1b'), putchar ('[');
             putchar (isfg ? '3' : '4');
-            putchar ('8');
-            putchar (';');
-            putchar ('2');
-            putchar (';');
+            putchar ('8'), putchar (';'), putchar ('2'), putchar (';');
             if (clr->rgb.red >= 100) putchar (clr->rgb.red / 100 + '0');
             if (clr->rgb.red >= 10) putchar (clr->rgb.red / 10 % 10 + '0');
             putchar (clr->rgb.red % 10 + '0');
@@ -123,13 +118,9 @@ static void print_color (VTermColor* clr, int isfg, int args) {
         }
     } else {
         if (args & MVTERM_PRINT_VISUAL) {
-            putchar ('\x1b');
-            putchar ('[');
+            putchar ('\x1b'), putchar ('[');
             putchar (isfg ? '3' : '4');
-            putchar ('8');
-            putchar (';');
-            putchar ('5');
-            putchar (';');
+            putchar ('8'), putchar (';'), putchar ('5'), putchar (';');
             if (clr->indexed.idx >= 100) putchar (clr->indexed.idx / 100 + '0');
             if (clr->indexed.idx >= 10) putchar (clr->indexed.idx / 10 % 10 + '0');
             putchar (clr->indexed.idx % 10 + '0');
@@ -160,6 +151,9 @@ void print_vterm (VTerm* vt, int args) {
     if (args & MVTERM_PRINT_VISUAL) {
         print_color (&fg, 1, args);
         print_color (&bg, 0, args);
+        if (args & MVTERM_PRINT_PRETTY) {
+            putchar ('\x1b'), putchar ('['), putchar ('?'), putchar ('7'), putchar ('l');
+        }
     } else {
         print_color (&fg, 1, args);
         print_color (&bg, 0, args);
@@ -199,46 +193,44 @@ void print_vterm (VTerm* vt, int args) {
 
             int on_cursor = r == curp.row && c == curp.col && mode.cursor_visible;
 
-            if ((args & MVTERM_PRINT_VISUAL) && on_cursor) putcsi (7, 'm', args);
+            if (args & MVTERM_PRINT_PRETTY) {
+                if (on_cursor) putcsi (7, 'm', args);
+                for (int i = 0; i < cell.width; ++i) putchar (' ');
+                if (on_cursor) putcsi (0, 'm', args);
 
-            if (cell.width) {
-                if (!cell.chars[0]) {
-                    if (!(args & MVTERM_PRINT_VISUAL)) {
-                        putchar ('%');
-                        putchar (' ');
-                    } else {
-                        if (on_cursor)
-                            putchar (' ');
-                        else
-                            putcsi (-1, 'C', args);
-                    }
-                } else {
-                    if (!(args & MVTERM_PRINT_VISUAL)) {
-                        if (cell.width > 1 || cell.chars[1]) {
-                            putchar ('%');
-                            putchar (cell.width + '0');
-                            int cpw = 0;
-                            for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
-                            putchar (cpw + '0');
-                        }
-                    }
+                putcsi (-1, 's', args);
+                for (int i = 0; i < cell.width; ++i) putcsi (-1, 'D', args);
 
-                    for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
-                        uint32_t cp = cell.chars[i];
-                        if (!(args & MVTERM_PRINT_VISUAL)) {
-                            if (cp == '%') putchar ('%');
-                        }
-                        pututf8 (cp);
-                    }
-                }
+            } else if (args & MVTERM_PRINT_VISUAL) {
+                if (on_cursor) putcsi (7, 'm', args);
 
-                if ((args & MVTERM_PRINT_VISUAL) && on_cursor) putcsi (0, 'm', args);
+                if (!cell.chars[0]) putchar (' ');
 
-                c += cell.width;
             } else {
-                fprintf (stderr, "vterm screen format error\n");
-                ++c;
+                if (cell.width > 1 || !cell.chars[0] || cell.chars[1]) {
+                    putchar ('%');
+                    putchar (cell.width + '0');
+                    int cpw = 0;
+                    for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
+                    putchar (cpw + '0');
+                }
             }
+
+            for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
+                uint32_t cp = cell.chars[i];
+                if (!(args & MVTERM_PRINT_VISUAL)) {
+                    if (cp == '%') putchar ('%');
+                }
+                pututf8 (cp);
+            }
+
+            if (args & MVTERM_PRINT_PRETTY) {
+                putcsi (-1, 'u', args);
+            } else if (args & MVTERM_PRINT_VISUAL) {
+                if (on_cursor) putcsi (0, 'm', args);
+            }
+
+            c += cell.width;
         }
 
         putchar ('\n');
@@ -246,6 +238,9 @@ void print_vterm (VTerm* vt, int args) {
 
     if (args & MVTERM_PRINT_VISUAL) {
         putcsi (0, 'm', args);
+        if (args & MVTERM_PRINT_PRETTY) {
+            putchar ('\x1b'), putchar ('['), putchar ('!'), putchar ('p');
+        }
         fflush (stdout);
     }
 }

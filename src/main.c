@@ -35,9 +35,10 @@ int main (int argc, char* const* argv) {
     int visual_args = 0;
     uint64_t us = 10;
     uint64_t xms = 100;
+    const char* term = "xterm-256color";
 
     opterr = 0;
-    for (int opt; (opt = getopt (argc, argv, ":c:l:s:vx:")) != -1;) {
+    for (int opt; (opt = getopt (argc, argv, ":c:l:s:t:vVx:")) != -1;) {
         if (opt == ':') {
             fprintf (stderr, "-%c: requires an argument\n", optopt);
             return 0;
@@ -59,8 +60,12 @@ int main (int argc, char* const* argv) {
                 fprintf (stderr, "-s: needs an uinteger\n");
                 return 0;
             }
+        } else if (opt == 't') {
+            term = optarg;
         } else if (opt == 'v') {
             visual_args |= MVTERM_PRINT_VISUAL;
+        } else if (opt == 'V') {
+            visual_args |= MVTERM_PRINT_VISUAL | MVTERM_PRINT_PRETTY;
         } else if (opt == 'x') {
             if (!parse_uint (optarg, &us)) {
                 fprintf (stderr, "-x: needs an uinteger\n");
@@ -108,7 +113,7 @@ int main (int argc, char* const* argv) {
         dup2 (slave, STDOUT_FILENO);
         dup2 (slave, STDERR_FILENO);
         close (slave);
-        setenv ("TERM", "xterm-256color", 1);
+        setenv ("TERM", term, 1);
         argv[optind] ? execvp (argv[optind], argv + optind) : execlp ("sh", "sh", "-i", NULL);
         _exit (EXIT_FAILURE);
     }
