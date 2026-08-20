@@ -196,7 +196,6 @@ void print_vterm (VTerm* vt, int args) {
             if (args & MVTERM_PRINT_PRETTY) {
                 if (on_cursor) putcsi (7, 'm', args);
                 for (int i = 0; i < cell.width; ++i) putchar (' ');
-                if (on_cursor) putcsi (0, 'm', args);
 
                 putcsi (-1, 's', args);
                 for (int i = 0; i < cell.width; ++i) putcsi (-1, 'D', args);
@@ -224,10 +223,9 @@ void print_vterm (VTerm* vt, int args) {
                 pututf8 (cp);
             }
 
-            if (args & MVTERM_PRINT_PRETTY) {
-                putcsi (-1, 'u', args);
-            } else if (args & MVTERM_PRINT_VISUAL) {
-                if (on_cursor) putcsi (0, 'm', args);
+            if (args & MVTERM_PRINT_VISUAL) {
+                if (args & MVTERM_PRINT_PRETTY) putcsi (-1, 'u', args);
+                if (on_cursor) putcsi (27, 'm', args);
             }
 
             c += cell.width;

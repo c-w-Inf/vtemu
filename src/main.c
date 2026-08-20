@@ -67,7 +67,7 @@ int main (int argc, char* const* argv) {
         } else if (opt == 'V') {
             visual_args |= MVTERM_PRINT_VISUAL | MVTERM_PRINT_PRETTY;
         } else if (opt == 'x') {
-            if (!parse_uint (optarg, &us)) {
+            if (!parse_uint (optarg, &xms)) {
                 fprintf (stderr, "-x: needs an uinteger\n");
                 return 0;
             }
