@@ -12,6 +12,7 @@ endif
 SRC_DIR := src
 OBJ_DIR := obj
 BIN_DIR := bin
+HELP_TXT := $(abspath help.txt)
 
 .PHONY: lib_all lib_clean
 LIB_INC_DIR := thirdparty/libvterm/include thirdparty/libringbuf
@@ -26,6 +27,7 @@ lib_clean:
 TARGET_NAME := vtemu
 
 CXXFLAGS := -Wall -Wextra -O2 -g -fPIE
+CXXFLAGS += -DHELP_PATH=\"$(HELP_TXT)\"
 LDFLAGS  := -Wl,-z,relro,-z,now -pie
 LDLIBS   := -lptytty
 
@@ -35,7 +37,7 @@ INCS   := $(sort $(dir $(shell find src/ $(LIB_INC_DIR)/ -type f -name "*.h")))
 SRCS   := $(shell find $(SRC_DIR)/ -type f -name "*.c")
 OBJS   := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
 
-.PHONY: all clean debug
+.PHONY: all clean debug help
 
 all: lib_all $(TARGET)
 
@@ -55,3 +57,6 @@ clean: lib_clean
 
 debug: CXXFLAGS += --DDEBUG -ggdb3 -O0
 debug: $(TARGET)
+
+help:
+	@cat help.txt

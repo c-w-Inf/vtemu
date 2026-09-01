@@ -14,6 +14,10 @@
 #include "mvterm.h"
 #include "ringbuf.h"
 
+#ifndef HELP_PATH
+#define HELP_PATH "help.txt"
+#endif
+
 uint64_t now_ms () {
     struct timespec ts;
     timespec_get (&ts, TIME_UTC);
@@ -30,21 +34,40 @@ int parse_int (const char* str, int64_t* val) {
     return !*endptr;
 }
 
+static int print_help (void) {
+    FILE* fp = fopen (HELP_PATH, "r");
+    if (!fp) {
+        perror ("help.txt");
+        return EXIT_FAILURE;
+    }
+
+    char buf[4096];
+    while (fgets (buf, sizeof (buf), fp)) {
+        fputs (buf, stdout);
+    }
+
+    fclose (fp);
+    return EXIT_SUCCESS;
+}
+
 int main (int argc, char* const* argv) {
     uint64_t lines = 24, columns = 80;
     int visual_args = 0;
     uint64_t us = 10;
     uint64_t xms = 100;
     const char* term = "xterm-256color";
+    int want_help = 0;
 
     opterr = 0;
-    for (int opt; (opt = getopt (argc, argv, ":c:l:s:t:vVx:")) != -1;) {
+    for (int opt; (opt = getopt (argc, argv, ":hc:l:s:t:vVx:")) != -1;) {
         if (opt == ':') {
             fprintf (stderr, "-%c: requires an argument\n", optopt);
             return 0;
         } else if (opt == '?') {
             fprintf (stderr, "-%c: unknown option\n", optopt);
             return 0;
+        } else if (opt == 'h') {
+            want_help = 1;
         } else if (opt == 'c') {
             if (!parse_uint (optarg, &columns)) {
                 fprintf (stderr, "-c: needs an uinteger\n");
@@ -72,6 +95,10 @@ int main (int argc, char* const* argv) {
                 return 0;
             }
         }
+    }
+
+    if (want_help) {
+        return print_help ();
     }
 
     VTerm* vt = vterm_new (lines, columns);

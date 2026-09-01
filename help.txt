@@ -1,0 +1,159 @@
+vtemu help
+==========
+
+vtemu is a small virtual-terminal emulator wrapper. It starts a command in a
+pseudo terminal, feeds stdin to that command, tracks the terminal state through
+libvterm, and prints a snapshot of the virtual screen when requested.
+
+Usage
+-----
+
+  ./bin/vtemu [options] [command [args...]]
+
+If no command is provided, vtemu starts an interactive sh:
+
+  ./bin/vtemu
+
+Common command form:
+
+  ./bin/vtemu -c 80 -l 24 sh
+  ./bin/vtemu -c 120 -l 40 bash
+  ./bin/vtemu -t xterm-256color vim file.txt
+
+Options
+-------
+
+  -h
+      Print this help text and exit.
+
+  -c <columns>
+      Set virtual terminal width in columns.
+      Default: 80
+
+  -l <lines>
+      Set virtual terminal height in rows.
+      Default: 24
+
+  -s <microseconds>
+      Set idle sleep time for the forwarding loop.
+      Default: 10
+
+      Use 0 to call sched_yield() instead of sleeping when no bytes move.
+
+  -t <term>
+      Set the TERM environment variable for the child command.
+      Default: xterm-256color
+
+  -v
+      Print snapshots as visible terminal escape sequences.
+      This mode is useful when you want to render the snapshot directly in a
+      terminal instead of reading vtemu's compact text format.
+
+  -V
+      Pretty visual mode. This includes -v and adds extra terminal-state reset
+      and cursor-positioning behavior so the rendered snapshot is easier to view
+      directly in a real terminal.
+
+  -x <milliseconds>
+      Set the pause duration used by the <X> input control.
+      Default: 100
+
+Input controls
+--------------
+
+vtemu reads normal stdin and forwards it to the child process. Lines ending in
+plain newline or carriage return are ignored by the input translator, so use the
+control sequences below when you need special actions.
+
+  <CR>
+      Send a carriage return to the child process.
+      Use this to submit a command to an interactive shell.
+
+  <ESC>
+      Send an ESC byte to the child process.
+      This is useful for terminal applications such as editors or full-screen
+      TUIs.
+
+  <L>
+      Send a literal < character.
+
+  <P>
+      Print a snapshot of the current virtual terminal screen.
+
+  <X>
+      Pause input processing for the number of milliseconds configured by -x.
+      This gives the child process time to react before a later <P> snapshot.
+
+Output formats
+--------------
+
+Default output is a compact textual dump:
+
+  %fRRGGBB / %bRRGGBB
+      Set default foreground/background RGB color.
+
+  %FNN / %BNN
+      Set indexed foreground/background color.
+
+  timestamp and cursor line
+      The first line includes a timestamp, cursor shape, cursor visibility,
+      cursor blink state, and cursor row/column.
+
+  screen grid
+      The following rows contain the virtual screen contents. Empty cells and
+      wide/multi-codepoint cells are encoded with percent-prefixed markers.
+
+With -v, vtemu prints real ANSI escape sequences and screen text. With -V, vtemu
+also wraps the snapshot in additional terminal controls intended for direct
+viewing.
+
+Demos
+-----
+
+Build first:
+
+  make all
+
+Show help:
+
+  ./bin/vtemu -h
+  make help
+
+Run a shell command, wait briefly, print a compact snapshot, then exit:
+
+  printf 'printf hello<CR><X><P>exit<CR>' | ./bin/vtemu -c 20 -l 4 sh 2>/dev/null
+
+Expected result: the snapshot contains a shell prompt, the typed command
+"printf hello", and the printed text "hello".
+
+Render the same snapshot using visible ANSI terminal sequences:
+
+  printf 'printf hello<CR><X><P>exit<CR>' | ./bin/vtemu -c 20 -l 4 -v sh 2>/dev/null
+
+Use a larger terminal size:
+
+  printf 'printf "row1\nrow2"<CR><X><P>exit<CR>' | ./bin/vtemu -c 40 -l 8 sh 2>/dev/null
+
+Use a different TERM value for a child program:
+
+  ./bin/vtemu -t xterm-256color bash
+
+Send a literal < character:
+
+  printf 'printf a<L>b<CR><X><P>exit<CR>' | ./bin/vtemu -c 20 -l 4 sh 2>/dev/null
+
+Send ESC to a terminal program:
+
+  timeout 2s sh -c "printf '<ESC><X><P>' | ./bin/vtemu -c 80 -l 24 sh"
+
+Notes
+-----
+
+  * vtemu depends on libptytty and the bundled thirdparty libvterm/libringbuf
+    sources.
+  * The child process runs under a pseudo terminal. Interactive programs may
+    need pauses with <X> before snapshots are taken.
+  * If a child process keeps running, terminate the pipeline with an external
+    timeout during automated demos, for example:
+
+      timeout 2s sh -c "printf 'printf hello<CR><X><P>exit<CR>' | ./bin/vtemu sh 2>/dev/null"
