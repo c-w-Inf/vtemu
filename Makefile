@@ -53,5 +53,5 @@ DEPS := $(OBJS:.o=.d)
 clean: lib_clean
 	@rm -rf $(OBJ_DIR)
 
-debug: CXXFLAGS += --DDEBUG -ggdb3 -O0
+debug: CXXFLAGS += -DDEBUG -ggdb3 -O0
 debug: $(TARGET)
