@@ -1,8 +1,18 @@
 #include "mvterm.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <vterm.h>
+
+#include "vterm_keycodes.h"
+
+#define MVTERM_PRINT_COLOR 1
+#define MVTERM_PRINT_WIDTH 2
+#define MVTERM_PRINT_VISUAL 4
+#define MVTERM_PRINT_PRETTY 8
+#define MVTERM_PRINT_VISUALM 7
+#define MVTERM_PRINT_PRETTYM 15
 
 static void pututf8 (uint32_t cp) {
     if (cp < 0x80) {
@@ -49,6 +59,7 @@ static void putcsi (int id, char type, int args) {
     }
 }
 static void print_attr (VTermScreenCellAttrs* attr, VTermScreenCellAttrs* nattr, int args) {
+    if (!(args & MVTERM_PRINT_COLOR)) return;
     if (!attr->bold && nattr->bold) {
         putcsi (1, 'm', args);
     } else if (attr->bold && !nattr->bold) {
@@ -89,6 +100,7 @@ static void print_attr (VTermScreenCellAttrs* attr, VTermScreenCellAttrs* nattr,
     }
 }
 static void print_color (VTermColor* clr, int isfg, int args) {
+    if (!(args & MVTERM_PRINT_COLOR)) return;
     if (VTERM_COLOR_IS_RGB (clr)) {
         if (args & MVTERM_PRINT_VISUAL) {
             putchar ('\x1b'), putchar ('[');
@@ -133,11 +145,8 @@ static void print_color (VTermColor* clr, int isfg, int args) {
         }
     }
 }
-void print_vterm (VTerm* vt, int args) {
+static void print_vterm (VTerm* vt, int top, int bottom, int left, int right, int args) {
     VTermState* vtst = vterm_obtain_state (vt);
-
-    int rows, cols;
-    vterm_get_size (vt, &rows, &cols);
 
     VTermColor fg, bg;
     vterm_state_get_default_colors (vtst, &fg, &bg);
@@ -148,34 +157,15 @@ void print_vterm (VTerm* vt, int args) {
     VTermPos curp;
     vterm_state_get_cursorpos (vtst, &curp);
 
-    if (args & MVTERM_PRINT_VISUAL) {
-        print_color (&fg, 1, args);
-        print_color (&bg, 0, args);
-        if (args & MVTERM_PRINT_PRETTY) {
-            putchar ('\x1b'), putchar ('['), putchar ('?'), putchar ('7'), putchar ('l');
-        }
-    } else {
-        print_color (&fg, 1, args);
-        print_color (&bg, 0, args);
-
-        struct timespec now;
-        clock_gettime (CLOCK_REALTIME, &now);
-
-        char buf[64];
-        snprintf (
-            buf, sizeof (buf), " %ld.%09ld %c%c%c%d;%d\n", now.tv_sec, now.tv_nsec,
-            (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BLOCK
-                 ? 'O'
-                 : (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BAR_LEFT ? '[' : '_')),
-            (mode.cursor_visible ? 'v' : 'i'), (mode.cursor_blink ? 'b' : 's'), curp.row, curp.col);
-        for (char* c = buf; *c; ++c) putchar (*c);
-    }
+    print_color (&fg, 1, args);
+    print_color (&bg, 0, args);
+    if (args & MVTERM_PRINT_PRETTY) putchar ('\x1b'), putchar ('['), putchar ('?'), putchar ('7'), putchar ('l');
 
     VTermScreenCellAttrs attr = {};
     VTermColor cfg = fg, cbg = bg;
 
-    for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols;) {
+    for (int r = top; r < bottom; r++) {
+        for (int c = left; c < right;) {
             VTermScreenCell cell;
             vterm_screen_get_cell (vterm_obtain_screen (vt), (VTermPos){r, c}, &cell);
 
@@ -205,14 +195,12 @@ void print_vterm (VTerm* vt, int args) {
 
                 if (!cell.chars[0]) putchar (' ');
 
-            } else {
-                if (cell.width > 1 || !cell.chars[0] || cell.chars[1]) {
-                    putchar ('%');
-                    putchar (cell.width + '0');
-                    int cpw = 0;
-                    for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
-                    putchar (cpw + '0');
-                }
+            } else if ((args & MVTERM_PRINT_WIDTH) && (cell.width > 1 || !cell.chars[0] || cell.chars[1])) {
+                putchar ('%');
+                putchar (cell.width + '0');
+                int cpw = 0;
+                for (; cpw < VTERM_MAX_CHARS_PER_CELL && cell.chars[cpw]; cpw++) continue;
+                putchar (cpw + '0');
             }
 
             for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
@@ -222,6 +210,7 @@ void print_vterm (VTerm* vt, int args) {
                 }
                 pututf8 (cp);
             }
+            if (!(args & MVTERM_PRINT_WIDTH) && !cell.chars[0]) putchar (' ');
 
             if (args & MVTERM_PRINT_VISUAL) {
                 if (args & MVTERM_PRINT_PRETTY) putcsi (-1, 'u', args);
@@ -243,49 +232,165 @@ void print_vterm (VTerm* vt, int args) {
     }
 }
 
-static int vterm_escape (RINGBUF dest, int escape) {
-    if (escape == 48) {  // <L>
+static int vterm_escape (RINGBUF dest, const char* escape, VTerm* vt) {
+    int n;
+    char c;
+    int x, y, a, b;
+    char buf[MVTERM_ESCAPE_MAXLEN];
+
+    VTermKey key = VTERM_KEY_NONE;
+    VTermModifier mod = VTERM_MOD_NONE;
+
+#define match(...) (n = -1, sscanf (escape, __VA_ARGS__, &n), (n >= 0 && !escape[n]))
+#define headmatch(...) (n = -1, sscanf (escape, __VA_ARGS__, &n), n >= 0)
+#define putchars(...)                              \
+    do {                                           \
+        snprintf (buf, sizeof (buf), __VA_ARGS__); \
+        for (char* c = buf; *c; ++c) putchar (*c); \
+    } while (0)
+
+    if (headmatch ("P-%n")) {
+        escape += 2;
+        int args = 0;
+        if (headmatch ("C%n")) args |= MVTERM_PRINT_COLOR, ++escape;
+        if (headmatch ("W%n")) args |= MVTERM_PRINT_WIDTH, ++escape;
+
+        x = y = 0;
+        vterm_get_size (vt, &a, &b);
+        if (!match ("%d;%d;%d;%d%n", &x, &y, &a, &b) && !match ("%n")) return -1;
+
+        print_vterm (vt, x, a, y, b, args);
+    } else if (match ("L%n")) {
         ringbuf_writed (dest, "<", 1);
-    } else if (escape == 52) {  // <P>
-        return MVTERM_COMM_PRINT;
-    } else if (escape == 60) {  // <X>
+    } else if (match ("P%n")) {
+        int rows, cols;
+        vterm_get_size (vt, &rows, &cols);
+        print_vterm (vt, 0, rows, 0, cols, MVTERM_PRINT_PRETTYM);
+    } else if (match ("p%n")) {
+        int rows, cols;
+        vterm_get_size (vt, &rows, &cols);
+        print_vterm (vt, 0, rows, 0, cols, MVTERM_PRINT_VISUALM);
+    } else if (match ("X%n")) {
         return MVTERM_COMM_PAUSE;
-    } else if (escape == 2550) {  // <CR>
-        ringbuf_writed (dest, "\r", 1);
-    } else if (escape == 171495) {  // <ESC>
-        ringbuf_writed (dest, "\x1b", 1);
+    } else if (match ("E%n")) {
+        return MVTERM_COMM_END;
+    } else if (match ("TIME%n")) {
+        struct timespec now;
+        clock_gettime (CLOCK_REALTIME, &now);
+        putchars ("%ld.%09ld\n", now.tv_sec, now.tv_nsec);
+    } else if (match ("CURM%n")) {
+        VTermMode mode;
+        vterm_state_get_mode (vterm_obtain_state (vt), &mode);
+        putchars (
+            "%c\n", (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BLOCK
+                         ? 'O'
+                         : (mode.cursor_shape == VTERM_PROP_CURSORSHAPE_BAR_LEFT ? '[' : '_')));
+    } else if (match ("CURV%n")) {
+        VTermMode mode;
+        vterm_state_get_mode (vterm_obtain_state (vt), &mode);
+        putchars ("%c\n", (mode.cursor_visible ? 'v' : 'i'));
+    } else if (match ("CURB%n")) {
+        VTermMode mode;
+        vterm_state_get_mode (vterm_obtain_state (vt), &mode);
+        putchars ("%c\n", (mode.cursor_blink ? 'b' : 's'));
+    } else if (match ("CURP%n")) {
+        VTermPos curp;
+        vterm_state_get_cursorpos (vterm_obtain_state (vt), &curp);
+        putchars ("%d;%d\n", curp.row, curp.col);
+    } else if (match ("RSZ%d;%d%n", &x, &y)) {
+        vterm_set_size (vt, x, y);
+        return MVTERM_COMM_RESIZE;
+    } else if (match ("%*c%n")) {
+        return -1;
     } else {
-        fprintf (stderr, "unknown escape %d\n", escape);
+        goto key;
+    }
+    return 0;
+
+key:
+    if (headmatch ("M-%n")) {
+        escape += 2;
+        mod |= VTERM_MOD_ALT;
+    }
+    if (headmatch ("C-%n")) {
+        escape += 2;
+        mod |= VTERM_MOD_CTRL;
+    }
+    if (headmatch ("S-%n")) {
+        escape += 2;
+        mod |= VTERM_MOD_SHIFT;
+    }
+
+    if (match ("%n")) {
+        return 0;
+    } else if (match ("n%d%n", &x)) {
+        c = x;
+    } else if (match ("%c%n", &c)) {
+    } else if (match ("SP%n")) {
+        c = ' ';
+    } else if (match ("TAB%n")) {
+        key = VTERM_KEY_TAB;
+    } else if (match ("CR%n")) {
+        key = VTERM_KEY_ENTER;
+    } else if (match ("KPCR%n")) {
+        key = VTERM_KEY_KP_ENTER;
+    } else if (match ("ESC%n")) {
+        key = VTERM_KEY_ESCAPE;
+    } else if (match ("BS%n")) {
+        key = VTERM_KEY_BACKSPACE;
+    } else if (match ("UP%n")) {
+        key = VTERM_KEY_UP;
+    } else if (match ("DOWN%n")) {
+        key = VTERM_KEY_DOWN;
+    } else if (match ("RIGHT%n")) {
+        key = VTERM_KEY_RIGHT;
+    } else if (match ("LEFT%n")) {
+        key = VTERM_KEY_LEFT;
+    } else if (match ("HOME%n")) {
+        key = VTERM_KEY_HOME;
+    } else if (match ("INS%n")) {
+        key = VTERM_KEY_INS;
+    } else if (match ("DEL%n")) {
+        key = VTERM_KEY_DEL;
+    } else if (match ("END%n")) {
+        key = VTERM_KEY_END;
+    } else if (match ("PGUP%n")) {
+        key = VTERM_KEY_PAGEUP;
+    } else if (match ("PGDOWN%n")) {
+        key = VTERM_KEY_PAGEDOWN;
+    } else if (match ("F%d%n", &x)) {
+        if (x <= 0 || x > VTERM_KEY_FUNCTION_MAX - VTERM_KEY_FUNCTION_0) return -1;
+        key = VTERM_KEY_FUNCTION (x);
+    } else {
         return -1;
     }
+
+    if (key != VTERM_KEY_NONE)
+        vterm_keyboard_key (vt, key, mod);
+    else
+        vterm_keyboard_unichar (vt, c, mod);
 
     return 0;
 }
 
-const int VTERM_ESCAPE_INIT_STAT = -1;
-int vterm_escape_translate (RINGBUF dest, int* status, char c) {
-    if (*status == -1) {
+int mvterm_escape_translate (RINGBUF dest, VTERM_STATE* state, char c, VTerm* vt) {
+    if (state->buflen == 0) {
         if (c == '<')
-            *status = 0;
-        else if (c != '\n' && c != '\r')
+            state->buflen = 1;
+        else if (c != '\0' && c != '\n' && c != '\r' && c != '\t' && c != ' ')
             ringbuf_writed (dest, &c, 1);
 
     } else {
         if (c == '>') {
-            int ret = vterm_escape (dest, *status);
-            *status = -1;
+            state->buf[state->buflen - 1] = '\0';
+            int ret = vterm_escape (dest, state->buf, vt);
+            state->buflen = 0;
             return ret;
-        }
-        if (*status & (63 << 24)) return -1;
-
-        if ('0' <= c && c <= '9') {
-            *status = *status * 64 + c - '0' + 1;
-        } else if ('a' <= c && c <= 'z') {
-            *status = *status * 64 + c - 'a' + 11;
-        } else if ('A' <= c && c <= 'Z') {
-            *status = *status * 64 + c - 'A' + 37;
-        } else {
+        } else if (c == '\n') {
             return -1;
+        } else {
+            if (state->buflen >= MVTERM_ESCAPE_MAXLEN) return -1;
+            state->buf[++state->buflen - 2] = c;
         }
     }
     return 0;

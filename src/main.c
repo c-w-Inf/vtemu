@@ -32,13 +32,12 @@ int parse_int (const char* str, int64_t* val) {
 
 int main (int argc, char* const* argv) {
     uint64_t lines = 24, columns = 80;
-    int visual_args = 0;
     uint64_t us = 10;
     uint64_t xms = 100;
     const char* term = "xterm-256color";
 
     opterr = 0;
-    for (int opt; (opt = getopt (argc, argv, ":c:l:s:t:vVx:")) != -1;) {
+    for (int opt; (opt = getopt (argc, argv, ":c:l:s:t:x:")) != -1;) {
         if (opt == ':') {
             fprintf (stderr, "-%c: requires an argument\n", optopt);
             return 0;
@@ -62,10 +61,6 @@ int main (int argc, char* const* argv) {
             }
         } else if (opt == 't') {
             term = optarg;
-        } else if (opt == 'v') {
-            visual_args |= MVTERM_PRINT_VISUAL;
-        } else if (opt == 'V') {
-            visual_args |= MVTERM_PRINT_VISUAL | MVTERM_PRINT_PRETTY;
         } else if (opt == 'x') {
             if (!parse_uint (optarg, &xms)) {
                 fprintf (stderr, "-x: needs an uinteger\n");
@@ -137,26 +132,38 @@ int main (int argc, char* const* argv) {
         exit (EXIT_FAILURE);
     }
 
-    int status = VTERM_ESCAPE_INIT_STAT;
+    VTERM_STATE state = {};
     uint64_t wait = now_ms ();
     while (1) {
         if (wait < now_ms ()) {
             int n;
             for (char c; (n = read (STDIN_FILENO, &c, 1)) > 0;) {
-                int comm = vterm_escape_translate (in_buf, &status, c);
+                int comm = mvterm_escape_translate (in_buf, &state, c, vt);
                 if (comm == -1) {
                     fprintf (stderr, "unable to parse escape\n");
-                    exit (EXIT_FAILURE);
-                } else if (comm == MVTERM_COMM_PRINT) {
-                    print_vterm (vt, visual_args);
+                    n = -2;
+                    break;
+                } else if (comm == MVTERM_COMM_RESIZE) {
+                    int rows, cols;
+                    vterm_get_size (vt, &rows, &cols);
+                    ws.ws_row = rows, ws.ws_col = cols;
+                    if (ioctl (master, TIOCSWINSZ, &ws) == -1) {
+                        perror ("fail to set pty winsize");
+                        exit (EXIT_FAILURE);
+                    }
                 } else if (comm == MVTERM_COMM_PAUSE) {
                     wait = now_ms () + xms;
                     errno = EWOULDBLOCK;
+                    break;
+                } else if (comm == MVTERM_COMM_END) {
+                    n = -2;
                     break;
                 }
             }
             if (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
                 perror ("unable to read stdin");
+                break;
+            } else if (n == -2) {
                 break;
             }
         }
